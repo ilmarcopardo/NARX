@@ -21,18 +21,25 @@ class NARX(torch.nn.Module):
         self.act1 = torch.nn.Tanh()
         self.act2 = torch.nn.Sigmoid()
 
-    def forward(self, x, y = None):
+    def forward(self, x, y = None, bootstrap = None):
         # x shape [batch_size, num_steps, dim]        
         if x.shape[1] < self.d_i: 
             raise Exception(f"Time series length is {x.shape[1]}, while the input delay is {self.d_i}")
         
+        if bootstrap is not None and y is None:
+            raise Exception(f"In order to bootstrap, y needs must not be None")
+        
         y_pred = torch.zeros(x.shape[0], x.shape[1], self.d_y)
+        if bootstrap is not None:
+            y_pred[:, :bootstrap, :] = y[:, :bootstrap, :]
 
         for i in range(x.shape[1]-self.d_i):
 
             x_squashed = x[:, i:i+self.d_i, :].view(x.shape[0], self.d_i*self.d_x)
 
-            if y is not None: y_squashed = y[:, i:i+self.d_o, :].view(y.shape[0], self.d_o*self.d_y)
+            # series-parallel architecture train
+            if y is not None and bootstrap is None: y_squashed = y[:, i:i+self.d_o, :].view(y.shape[0], self.d_o*self.d_y)
+            # parallel architecture train
             else: y_squashed = y_pred[:, i:i+self.d_o, :].view(y_pred.shape[0], self.d_o*self.d_y)
             input_cat = torch.cat((x_squashed, y_squashed), dim=1)
 
@@ -40,7 +47,7 @@ class NARX(torch.nn.Module):
             x_hl = self.act1(x_hl)
 
             x_hl = self.hl2(x_hl)
-            #x_hl = self.act2(x_hl)
+            x_hl = self.act2(x_hl)
 
             y_pred[:, i+self.d_o, :] = x_hl
         
