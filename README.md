@@ -24,21 +24,21 @@ from narxpy import NARX
 model = NARX(d_i=d_i, d_o=d_o, d_x=d_x, d_y=d_y, d_hl=d_hl, act_func=act_func)
 ```
 
-# --- Run Modes ---
+## Run Modes
 
-# 1. Close Loop (Simulation - Default)
+### 1. Close Loop (Simulation - Default)
 ```
 y_pred_close = model(x_data, mode="close")
 print(f"Close loop output shape: {y_pred_close.shape}")
 ```
 
-# 2. Open Loop (Teacher Forcing)
+### 2. Open Loop (Teacher Forcing)
 ```
 y_pred_open = model(x_data, mode="open", y=y_true)
 print(f"Open loop output shape: {y_pred_open.shape}")
 ```
 
-# 3. Close Loop with Bootstrap
+### 3. Close Loop with Bootstrap
 ```
 y_pred_bootstrap = model(x_data, mode="close", y=y_true, bootstrap=bootstrap_steps)
 print(f"Bootstrap output shape: {y_pred_bootstrap.shape}")
