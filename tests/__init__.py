@@ -1,1 +1,1 @@
-from src.narx_model import NARX
+from src.narxpy import NARX
