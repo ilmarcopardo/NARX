@@ -156,8 +156,7 @@ class NARX(nn.Module):
                  raise ValueError(f"Bootstrap steps {bootstrap} must be at least {required_past_steps} (max(d_i, d_o)) to make the first prediction.")
 
         y_pred = torch.zeros(batch_size, num_steps, self.d_y, device=x.device, dtype=x.dtype)
-        if mode == "open": bootstrap = self.d_o
-
+        
         if bootstrap is not None:
             copy_len = min(bootstrap, y.shape[1])
             y_pred[:, :copy_len, :] = y[:, :copy_len, :]
