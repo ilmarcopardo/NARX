@@ -4,6 +4,26 @@ import inspect
 
 class NARX(nn.Module):
     def __init__(self, d_i: int, d_o: int, d_x: int, d_y: int, d_hl: int, act_func: str = "Sigmoid"):
+        """
+        Initializes the NARX (Nonlinear Autoregressive Network with Exogenous Inputs) model.
+
+        Args:
+            d_i (int): Input delay (lookback window size for exogenous inputs x).
+            d_o (int): Output delay (lookback window size for autoregressive feedback y).
+            d_x (int): Dimension of the exogenous input features at each time step.
+            d_y (int): Dimension of the output features at each time step.
+            d_hl (int): Dimension of the hidden layer.
+            act_func (str, optional): Name of the torch.nn activation function to use
+                for the output layer. Defaults to "Sigmoid".
+
+        Raises:
+            ValueError: If any dimension (d_i, d_o, d_x, d_y, d_hl) is not a positive integer.
+            TypeError: If act_func is not a string.
+            ValueError: If act_func name is not found in torch.nn.
+            TypeError: If act_func name corresponds to something in torch.nn that is not
+                       an nn.Module subclass.
+        """
+
         super().__init__()
 
         if not isinstance(d_i, int) or d_i <= 0:
@@ -45,7 +65,55 @@ class NARX(nn.Module):
 
 
     def forward(self, x: torch.Tensor, mode: str = "close", y: torch.Tensor = None, bootstrap: int = None) -> torch.Tensor:
-        
+        """
+        Performs the forward pass for the NARX model in open or closed loop.
+
+        Generates predictions step-by-step through the time series. The source
+        of the autoregressive feedback (past outputs) depends on the specified mode.
+
+        Note: The terminology "open" and "close" loop used here aligns with
+        common usage in MATLAB's NARX simulation, where:
+          - "open": Uses provided true target values `y` for feedback (Series-Parallel / Teacher Forcing).
+          - "close": Uses the model's own past predictions for feedback (Parallel / Simulation).
+
+        Args:
+            x (torch.Tensor): The input time series tensor with shape
+                (batch_size, num_steps, d_x).
+            mode (str, optional): Specifies the feedback loop mode.
+                - "close": Uses the model's own previous predictions (`y_pred`) as
+                  feedback (Parallel architecture). Default is "close".
+                - "open": Uses the provided true sequence `y` as feedback
+                  (Series-Parallel architecture / Teacher Forcing).
+                  Requires `y` to be provided.
+            y (torch.Tensor, optional): The target (true output) time series tensor
+                with shape (batch_size, num_steps, d_y). Required if `mode` is "open"
+                or if `bootstrap` is used. Defaults to None.
+            bootstrap (int, optional): If provided (and `mode` is "close"), uses the
+                first `bootstrap` steps from the provided `y` tensor to initialize
+                the `y_pred` tensor. The prediction loop will then start from the
+                `bootstrap`-th step. Requires `y` to be provided. Cannot be used
+                if `mode` is "open". Defaults to None.
+
+        Returns:
+            torch.Tensor: The predicted output time series tensor with shape
+                (batch_size, num_steps, d_y).
+
+        Raises:
+            TypeError: If `x` or `y` (if provided) are not torch.Tensors.
+            ValueError: If `x` or `y` (if provided) do not have 3 dimensions.
+            ValueError: If the input dimension of `x` does not match `self.d_x`.
+            ValueError: If `num_steps` in `x` is less than `max(self.d_i, self.d_o)`.
+            ValueError: If an invalid `mode` string is provided (not "close" or "open").
+            ValueError: If `mode` is "open" but `y` is not provided.
+            ValueError: If `mode` is "open" and `bootstrap` is also provided (not allowed).
+            ValueError: If shape of `y` does not match `x` in batch_size and num_steps,
+                        or if the feature dimension of `y` does not match `self.d_y`.
+            ValueError: If `bootstrap` is provided but `y` is None.
+            ValueError: If `bootstrap` is not a positive integer.
+            ValueError: If `bootstrap` is greater than `num_steps`.
+            ValueError: If `bootstrap` is less than `max(self.d_i, self.d_o)`.
+        """
+
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor, got {type(x)}")
         if x.ndim != 3:
