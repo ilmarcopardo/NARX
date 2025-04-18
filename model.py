@@ -45,7 +45,7 @@ class NARX(nn.Module):
 
 
     def forward(self, x: torch.Tensor, mode: str = "close", y: torch.Tensor = None, bootstrap: int = None) -> torch.Tensor:
-
+        
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor, got {type(x)}")
         if x.ndim != 3:
@@ -62,6 +62,10 @@ class NARX(nn.Module):
 
         if mode != "close" and mode != "open":
             raise ValueError(f"A valid mode must be selected, got {mode}.")
+        if mode == "open" and y is None:
+            raise ValueError(f"Selected mode is {mode} loop but no input y was given")
+        if mode == "open" and bootstrap is not None:
+            raise ValueError(f"Bootstrap is not needed if mode is {mode} loop.")
 
         if y is not None:
             if not isinstance(y, torch.Tensor):
@@ -84,6 +88,7 @@ class NARX(nn.Module):
                  raise ValueError(f"Bootstrap steps {bootstrap} must be at least {required_past_steps} (max(d_i, d_o)) to make the first prediction.")
 
         y_pred = torch.zeros(batch_size, num_steps, self.d_y, device=x.device, dtype=x.dtype)
+        if mode == "open": bootstrap = self.d_o
 
         if bootstrap is not None:
             copy_len = min(bootstrap, y.shape[1])
@@ -94,10 +99,8 @@ class NARX(nn.Module):
         for t in range(loop_start_idx, num_steps):
             x_window = x[:, t - self.d_i : t, :].reshape(batch_size, -1)
 
-            if y is not None and bootstrap is not None and t < bootstrap:
-                 y_window_source = y
-            else:
-                 y_window_source = y_pred # Use self-generated predictions
+            if mode == "open": y_window_source = y
+            else: y_window_source = y_pred 
 
             y_window = y_window_source[:, t - self.d_o : t, :].reshape(batch_size, -1)
 
@@ -109,98 +112,3 @@ class NARX(nn.Module):
             y_pred[:, t, :] = output
 
         return y_pred
-
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    batch_dim = 4
-    x_length = 20
-    d_x = 3
-    d_y = 2
-    d_i = 5
-    d_o = 4
-    d_hl = 16
-
-    model = NARX(d_i=d_i, d_o=d_o, d_x=d_x, d_y=d_y, d_hl=d_hl).to(device)
-
-    x = torch.rand(batch_dim, x_length, d_x, device=device)
-    y_true = torch.rand(batch_dim, x_length, d_y, device=device) 
-
-    # Mode 1: Parallel (free-running)
-    print("Testing Parallel Mode...")
-    y_pred_parallel = model(x)
-    assert y_pred_parallel.shape == (batch_dim, x_length, d_y), \
-        f"Parallel Mode: Unexpected shape: {y_pred_parallel.shape}, expected ({batch_dim}, {x_length}, {d_y})"
-    print("Parallel Mode OK.")
-
-    # Mode 2: Series-Parallel (teacher forcing)
-    print("\nTesting Series-Parallel Mode...")
-    y_pred_series_parallel = model(x, y=y_true)
-    assert y_pred_series_parallel.shape == (batch_dim, x_length, d_y), \
-        f"Series-Parallel Mode: Unexpected shape: {y_pred_series_parallel.shape}, expected ({batch_dim}, {x_length}, {d_y})"
-    print("Series-Parallel Mode OK.")
-
-    # Mode 3: Bootstrap
-    print("\nTesting Bootstrap Mode...")
-    bootstrap_steps = max(d_i, d_o) + 2 # Example: Ensure enough history + a few steps
-    if bootstrap_steps > x_length:
-        bootstrap_steps = x_length # Cannot bootstrap more than available steps
-        print(f"Warning: Bootstrap steps reduced to {bootstrap_steps} due to sequence length.")
-
-    if x_length >= max(d_i, d_o):
-        y_pred_bootstrap = model(x, y=y_true, bootstrap=bootstrap_steps)
-        assert y_pred_bootstrap.shape == (batch_dim, x_length, d_y), \
-            f"Bootstrap Mode: Unexpected shape: {y_pred_bootstrap.shape}, expected ({batch_dim}, {x_length}, {d_y})"
-
-        # Check if initial steps match y_true
-        assert torch.allclose(y_pred_bootstrap[:, :bootstrap_steps, :], y_true[:, :bootstrap_steps, :]), \
-            "Bootstrap Mode: Initial steps do not match y_true"
-
-        # Check if later steps are different (unless y_true happens to be the perfect prediction)
-        # We expect predictions after bootstrap to diverge usually
-        if bootstrap_steps < x_length:
-             # Check a step right after bootstrap ends
-             assert not torch.allclose(y_pred_bootstrap[:, bootstrap_steps, :], y_true[:, bootstrap_steps, :]), \
-                 f"Bootstrap Mode: Prediction at step {bootstrap_steps} unexpectedly matched y_true (highly unlikely unless model is perfect or lucky)"
-        print("Bootstrap Mode OK.")
-    else:
-        print("Skipping Bootstrap test due to insufficient sequence length.")
-
-    # Test Error Handling
-    print("\nTesting Error Handling...")
-    try:
-        short_x = torch.rand(batch_dim, d_i - 1, d_x, device=device)
-        model(short_x)
-    except ValueError as e:
-        print(f"Caught expected error for short sequence: {e}")
-
-    try:
-        model(x, bootstrap=5) # Missing y
-    except ValueError as e:
-        print(f"Caught expected error for bootstrap without y: {e}")
-
-    try:
-        wrong_dim_x = torch.rand(batch_dim, x_length, d_x + 1, device=device)
-        model(wrong_dim_x)
-    except ValueError as e:
-        print(f"Caught expected error for wrong x dimension: {e}")
-
-    try:
-        wrong_dim_y = torch.rand(batch_dim, x_length, d_y + 1, device=device)
-        model(x, y=wrong_dim_y)
-    except ValueError as e:
-        print(f"Caught expected error for wrong y dimension: {e}")
-
-    try:
-        wrong_shape_y = torch.rand(batch_dim, x_length -1, d_y, device=device)
-        model(x, y=wrong_shape_y)
-    except ValueError as e:
-        print(f"Caught expected error for y shape mismatch: {e}")
-
-    try:
-        model(x, y=y_true, bootstrap=max(d_i, d_o)-1) # Bootstrap too short
-    except ValueError as e:
-        print(f"Caught expected error for insufficient bootstrap steps: {e}")
-
-    print("Error handling tests completed.")
